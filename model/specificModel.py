@@ -19,3 +19,4 @@ def initializeCarsForModelType(year, modelType, isEV):
 def initializeCars(year):
     # arbitrary assumptions -- equal shares of each model type and each year until the quality is 0.
     numModelTypes = len(genericParameters['carTypes'].keys())
+    
