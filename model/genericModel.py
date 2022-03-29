@@ -44,15 +44,23 @@
 
 import itertools, functools, copy
 
-def addYearToCar(year, car):
-    age = year - car['year']
-    initialValue = globalParameters['carInitialValues'][car['model']]
+globalParameters = {}                             # the program that loads us will replace this
 
-    depreciatedValue = initialValue * globalParameters['carDepreciationCurve'][car['model']][age] if (
-        age in globalParameters['carDepreciationCurve'][car['model']]) else 0
+# for a particular car (in the 'cars' data structure with key "model-year-isEV"), update the dict by adding
+#    year to the history key
+def addYearToCar(year, cars, car):
+    age = year - car['year']
+    initialValue = globalParameters['carTypes'][car['model']]['initialQuality']
+
+    depreciatedValue = initialValue * globalParameters['carTypes'][car['model']]['depreciationCurve'][age] if (
+        age in globalParameters['carTypes'][car['model']]['depreciationCurve']) else 0
+    # for the initial price this year, use the price of a car of this model and age from last year's history
+    # As part of the simulation, a later function will update this initial price based on market conditions
+    key = car['model'] + "-" + str(car['year']-1) + "-" + str(car['EV'])    # for example, 'luxury-2021-False'
+    comparableCar = cars[key] if key in cars else {'history': {year-1: {'price': 0}}}
     # now add new year to car history
     car['history'][year] = {
-        'price': car['history'][year-1]['price'],    # start with last year's price; a later function will update for this year
+        'price': comparableCar['history'][year-1]['price'],
         'quality': depreciatedValue,
         'batteryValue': 0
     }
@@ -66,7 +74,7 @@ def initializeYear(population, cars):
     #    simulating the market for the new year
     population[lastYear+1] = copy.deepcopy(population[lastYear])
 
-    addThisYearToCar = functools.partial(addYearToCar, lastYear+1)   # prefill first argument of addYearToCar
+    addThisYearToCar = functools.partial(addYearToCar, lastYear+1, cars)   # prefill first argument of addYearToCar
     list(map(addThisYearToCar, list(cars.values())))              # every value in the cars dict is a dict representing one model-year
     return population, cars
 
