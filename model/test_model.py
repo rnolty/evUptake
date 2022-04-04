@@ -3,16 +3,16 @@ import specificModel
 # population = {2021:
 #                 {10000:
 #                     {'fraction': 0.05, 'cars':
-#                         [
-#                             {'car': 'midrange-2013-False', 'fraction': 0.5},
-#                             {'car': 'economy-2015-False',  'fraction': 0.5}
-#                         ]
+#                         {
+#                             'midrange-2013-False': {'fraction': 0.025},
+#                             'economy-2015-False':  {'fraction': 0.025}
+#                         }
 #                     }, # end of income cohort 10000
 #                  20000:
 #                     {'fraction': 0.05, 'cars':
 #                         [
-#                             {'car': 'midrange-2015-False', 'fraction': 0.6},
-#                             {'car': 'economy-2016-False',  'fraction': 0.4}
+#                             'midrange-2015-False': {'fraction': 0.03},
+#                             'economy-2016-False':  {'fraction': 0.02}
 #                         ]
 #                     }, # end of income cohort 20000
 #                 } # end of 2022
@@ -67,7 +67,8 @@ globalParameters = {
         {'income': 60000,  'utilityFunction': specificModel.peakedUtility(20000), 'fraction': 0.20},
         {'income': 80000,  'utilityFunction': specificModel.peakedUtility(40000), 'fraction': 0.09},
         {'income': 100000, 'utilityFunction': specificModel.peakedUtility(70000), 'fraction': 0.085}
-    ]
+    ],
+    'transactionCost': 500
 }
 
 import genericModel

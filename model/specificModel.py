@@ -1,5 +1,7 @@
 import functools
 
+from genericModel import carsSortedByQuality
+
 globalParameters = {}    # this will be replaced by whoever calls us
 
 def initializeCarsForModelType(year, modelType, isEV):
@@ -53,17 +55,12 @@ def initializePopulation(cars, year):
     populationThisYear = {
         year: {
             peopleGroup['income']: {
-                'fraction': peopleGroup['fraction'], 'cars': []
+                'fraction': peopleGroup['fraction'], 'cars': {}
             } for peopleGroup in globalParameters['peopleGroups']
         }
     }
 
-    # sort all cars by quality
-    allModels = list(cars.keys())
-    def modelSorter(model):
-        return cars[model]['history'][year]['quality']
-    allModels.sort(key=modelSorter)
-    #print("***", [(s, cars[s]['history'][year]['quality']) for s in allModels])
+    allModels = carsSortedByQuality(cars, year)
 
     # distribute the lowest-quality models to the lowest income demographic groups
     modelShare = 1.0 / len(allModels)           # e.g. if there are 20 models, 5% of population has each model
@@ -72,14 +69,14 @@ def initializePopulation(cars, year):
     # list of peopleGroups in globalParameters must be ordered by increasing income
     for incomeLevel in [peopleGroup['income'] for peopleGroup in globalParameters['peopleGroups']]:
         populationRemaining = populationThisYear[year][incomeLevel]['fraction']
-        while (populationRemaining > 0.0001):
+        while (populationRemaining > 0.0001):     # don't continue if only roundoff error remains
             if (populationRemaining >= modelShareRemaining):
-                populationThisYear[year][incomeLevel]['cars'].append({'car': allModels[currentModel], 'fraction': modelShareRemaining})
+                populationThisYear[year][incomeLevel]['cars'][allModels[currentModel]] = {'fraction': modelShareRemaining}
                 populationRemaining -= modelShareRemaining
                 currentModel += 1
                 modelShareRemaining = modelShare
             else:
-                populationThisYear[year][incomeLevel]['cars'].append({'car': allModels[currentModel], 'fraction': populationRemaining})
+                populationThisYear[year][incomeLevel]['cars'][allModels[currentModel]] = {'fraction': populationRemaining}
                 modelShareRemaining -= populationRemaining
                 populationRemaining = 0
 
