@@ -1,4 +1,4 @@
-import specificModel
+import specificModel, genericModel
 
 # population = {2021:
 #                 {10000:
@@ -47,31 +47,31 @@ import specificModel
 globalParameters = {
     'carTypes': {
         'luxury': {
-            'initialQuality': 70000,
+            'initialQuality': 70000, 'salvageValue': 2000,
             'depreciationCurve': {0: 1.0, 1: 0.7, 2: 0.6, 3: 0.5, 4: 0.42, 5: 0.36, 6: 0.3, 7: 0.25, 8: 0.18, 9: 0.1, 10: 0}
         },
         'midrange': {
-            'initialQuality': 30000,
+            'initialQuality': 30000, 'salvageValue': 2000,
             'depreciationCurve': {0: 1.0, 1: 0.7, 2: 0.6, 3: 0.5, 4: 0.42, 5: 0.36, 6: 0.3, 7: 0.25, 8: 0.18, 9: 0.1, 10: 0}
         },
         'economy': {
-            'initialQuality': 15000,
+            'initialQuality': 15000, 'salvageValue': 2000,
             'depreciationCurve': {0: 1.0, 1: 0.7, 2: 0.6, 3: 0.5, 4: 0.42, 5: 0.36, 6: 0.3, 7: 0.25, 8: 0.18, 9: 0.1, 10: 0}
         }
     },
     'peopleGroups': [
-        {'income': 10000,  'utilityFunction': specificModel.peakedUtility(2000), 'fraction': 0.05},
-        {'income': 20000,  'utilityFunction': specificModel.peakedUtility(4000), 'fraction': 0.125},
-        {'income': 30000,  'utilityFunction': specificModel.peakedUtility(6000), 'fraction': 0.20},
-        {'income': 40000,  'utilityFunction': specificModel.peakedUtility(10000), 'fraction': 0.25},
-        {'income': 60000,  'utilityFunction': specificModel.peakedUtility(20000), 'fraction': 0.20},
-        {'income': 80000,  'utilityFunction': specificModel.peakedUtility(40000), 'fraction': 0.09},
-        {'income': 100000, 'utilityFunction': specificModel.peakedUtility(70000), 'fraction': 0.085}
+        {'income': 10000,  'fraction': 0.05,  'utilityFunction': specificModel.peakedUtility(2000),  'scaledExp': genericModel.scaledExpCurried(1000)},
+        {'income': 20000,  'fraction': 0.125, 'utilityFunction': specificModel.peakedUtility(4000),  'scaledExp': genericModel.scaledExpCurried(2000)},
+        {'income': 30000,  'fraction': 0.20,  'utilityFunction': specificModel.peakedUtility(6000),  'scaledExp': genericModel.scaledExpCurried(3000)},
+        {'income': 40000,  'fraction': 0.25,  'utilityFunction': specificModel.peakedUtility(10000), 'scaledExp': genericModel.scaledExpCurried(5000)},
+        {'income': 60000,  'fraction': 0.20,  'utilityFunction': specificModel.peakedUtility(20000), 'scaledExp': genericModel.scaledExpCurried(10000)},
+        {'income': 80000,  'fraction': 0.09,  'utilityFunction': specificModel.peakedUtility(40000), 'scaledExp': genericModel.scaledExpCurried(20000)},
+        {'income': 100000, 'fraction': 0.085, 'utilityFunction': specificModel.peakedUtility(70000), 'scaledExp': genericModel.scaledExpCurried(35000)}
     ],
-    'transactionCost': 500
+    'transactionCost': 500,
+    'utilityScale': 0.15
 }
 
-import genericModel
 genericModel.globalParameters = globalParameters
 specificModel.globalParameters = globalParameters
 
@@ -87,8 +87,10 @@ population = specificModel.initializePopulation(cars, thisYear)
 #   theSum = sum(c['fraction'] for c in population[thisYear][incomeLevel]['cars'])
 #    print("***", population[thisYear][incomeLevel]['fraction'], theSum)
 
-population, cars = genericModel.initializeYear(population, cars)
+population, cars = genericModel.determinePrices(*genericModel.initializeYear(population, cars))
 
 print("\n\nPopulation:\n", population, "\n\nCars:\n", cars, "\n\n\n")
+
+
 
 print("\n\n\n")

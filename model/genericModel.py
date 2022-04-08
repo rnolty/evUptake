@@ -46,12 +46,17 @@ import itertools, functools, copy, math
 
 globalParameters = {}                             # the program that loads us will replace this
 
+def _scaledExp(scale, x): return math.exp(x/scale)
+
+def scaledExpCurried(scale):
+    return functools.partial(_scaledExp, scale)  # return function of x, which is _scaledExp with scale already filled in
+
 # takes a complete cars dict, returns a list of keys ("model-year-EV") sorted by quality
-def carsSortedByQuality(cars, year):
+def carsSortedByQuality(cars, year, reverse=True):
     allModels = list(cars.keys())
     def modelSorter(model):
         return cars[model]['history'][year]['quality']
-    allModels.sort(key=modelSorter)
+    allModels.sort(key=modelSorter, reverse=reverse)
     #print("***", [(s, cars[s]['history'][year]['quality']) for s in allModels])
     return allModels
 
@@ -74,21 +79,25 @@ def addYearToCar(year, cars, car):
         'batteryValue': 0
     }
 
+# for a car that is new this model year, returns the relevant entry for the cars data structure
 def addNewCar(year, isEV, model):
     key = model + "-" + str(year) + "-" + str(isEV)    # e.g. "luxury-2022-False"
     quality = globalParameters['carTypes'][model]['initialQuality']
     value = {'model': model, 'year': year, 'EV': isEV, 'history': {year: {'price': quality, 'quality': quality, 'batteryValue': 0}}}
     return {key: value}
 
+# the first step for setting prices and doing sales for a new year is to create the new year in the population data structure, and
+#    for each car, add the new year to the history
 def initializeYear(population, cars):
-    # just copy the most recent year forward; then other functions will depreciate and purchase cars
+    # just copy the most recent year forward; then other functions will price and purchase cars
     lastYear = sorted(population.keys())[-1]
     # to be a true pure function we should copy population and add the new data to the copy; but I
-    #    don't think that buys us anything...  A later function will change car ownership statistics byj
+    #    don't think that buys us anything...  A later function will change car ownership statistics by
     #    simulating the market for the new year
     population[lastYear+1] = copy.deepcopy(population[lastYear])
 
     addThisYearToCar = functools.partial(addYearToCar, lastYear+1, cars)   # prefill first argument of addYearToCar
+    # list() causes map object to evaluate
     list(map(addThisYearToCar, list(cars.values())))              # every value in the cars dict is a dict representing one model-year
 
     # now add new cars for this year
@@ -96,83 +105,96 @@ def initializeYear(population, cars):
 
     return population, cars
 
-def determineSellers(year, population, cars, sortedCarNames, carName):
-    # consider all people groups that own any of this car as potential sellers -- they will sell if the utility
-    #    of buying a new car exceeds the utility of holding
-    priceThisCar = cars[carName]['history'][year]['price']
-    qualityThisCar = cars[carName]['history'][year]['quality']
-    higherQualityCarNames = sortedCarNames[0:sortedCarNames.index(carName)]
-    transactionCost = globalParameters['transactionCost']    # may later try making it proportional to prices
-
-    numSold = 0
-    for (incomeLevel, peopleGroup) in [(k,v) for (k,v) in population[year].items() if (carName in v['cars'].keys())]:
-        utilityFunction = [thing['utilityFunction'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
-        numerator = 0
-        denominator = math.exp(utilityFunction(qualityThisCar))
-        for otherCarName in higherQualityCarNames:
-            priceOtherCar = cars[otherCarName]['history'][year]['price']
-            qualityOtherCar = cars[otherCarName]['history'][year]['quality']
-            numerator += math.exp(utilityFunction(qualityOtherCar) + priceThisCar - priceOtherCar - transactionCost)
-            denominator += math.exp(utilityFunction(qualityOtherCar) + priceThisCar - priceOtherCar - transactionCost)
-        numSold += peopleGroup['cars'][carName]['fraction'] * numerator / denominator
-    return numSold
-
+# how many owners of lower-quality cars would buy this car if the price were at its initial value?  Later the price, and the number
+#    of buyers, will be adjusted
 def determineBuyers(year, population, cars, sortedCarNames, carName):
     priceThisCar = cars[carName]['history'][year]['price']
     qualityThisCar = cars[carName]['history'][year]['quality']
     lowerQualityCarNames = sortedCarNames[sortedCarNames.index(carName)+1:]
     transactionCost = globalParameters['transactionCost']    # may later try making it proportional to prices
 
+    buyerMemory = {}                 # for efficiency only - remember some intermediate results and return them
     numBought = 0
     for (incomeLevel, peopleGroup) in population[year].items():
-        # if the people group have no utility for a car this expensive, skip them
+        # if the people group has no utility for a car this expensive (or this cheap), skip them
         utilityFunction = [thing['utilityFunction'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
+        scaledExp = [thing['scaledExp'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
         if (utilityFunction(qualityThisCar) == 0): continue
 
         for otherCarName in lowerQualityCarNames:
-            if (otherCarName in peopleGroup['cars'].keys()):     # candidate to buy this car
-                priceOtherCar = cars[otherCarName]['history'][year]['price']
-                qualityOtherCar = cars[otherCarName]['history'][year]['quality']
-                numerator = math.exp(utilityFunction(qualityThisCar) - priceThisCar + priceOtherCar - transactionCost)
-                denominator = math.exp(utilityFunction(qualityOtherCar))
-                higherQualityCarNames = sortedCarNames[0:sortedCarNames.index(otherCarName)]
-                for thirdCarName in higherQualityCarNames:
-                    priceThirdCar = cars[thirdCarName]['history'][year]['price']
-                    qualityThirdCar = cars[thirdCarName]['history'][year]['quality']
-                    denominator += math.exp(utilityFunction(qualityThirdCar) - priceThirdCar + priceOtherCar - transactionCost)
-                    numBought += population[year][incomeLevel]['cars'][thirdCarName]['fraction'] * numerator / denominator
-    return numBought
+            if (otherCarName not in peopleGroup['cars'].keys()): continue
+
+            priceOtherCar = cars[otherCarName]['history'][year]['price']
+            qualityOtherCar = cars[otherCarName]['history'][year]['quality']
+            numerator = scaledExp(utilityFunction(qualityThisCar) - priceThisCar + priceOtherCar - transactionCost) # TODO: operating costs
+            if (utilityFunction(qualityOtherCar) > 0):
+                denominator = scaledExp(utilityFunction(qualityOtherCar))   # probability of keeping other car
+            else:
+                denominator = 0                                             # other car has no utility, no chance of keeping it
+            # now add to denominator probability of buying any other higher-quality car (including carName)
+            higherQualityCarNames = sortedCarNames[0:sortedCarNames.index(otherCarName)]
+            for thirdCarName in higherQualityCarNames:
+                priceThirdCar = cars[thirdCarName]['history'][year]['price']
+                qualityThirdCar = cars[thirdCarName]['history'][year]['quality']
+                denominator += scaledExp(utilityFunction(qualityThirdCar) - priceThirdCar + priceOtherCar - transactionCost)
+            # now numerator/denominator is probability owner of thirdCarName chose to buy carName
+            #print("***", peopleGroup)
+            numBought += peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator
+
+            tmp = peopleGroup['cars'][otherCarName]['fraction']
+            print("**A**", priceThisCar, tmp, tmp*numerator/denominator, numerator, denominator)
+
+            if (incomeLevel not in buyerMemory): buyerMemory[incomeLevel] = {'cars': []}
+            buyerMemory[incomeLevel]['cars'].append( {'model': otherCarName, 'numerator': numerator, 'denominator': denominator} )
+        # end of loop over cars owned by this peopleGroup
+    # end of loop over people groups
+    return numBought, buyerMemory
 
 
-
+# for a single model-year-EV, decide an equilibrium price and which owners of lower-quality cars choose to buy at that price
 def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
+    # the scale of fluctuations is set to a fraction of the quality of this car; this scale of fluctuation is used for all
+    #    calculations involving purchase of this car
+    utilityScale = globalParameters['utilityScale'] * cars[carName]['history'][year]['quality']
+    scaledExp = scaledExpCurried(utilityScale)    # scaledExp(x) = exp(scale*x)
+
     # for all owners of a lower-quality car, decide if they choose to buy this car (at its current price)
     # we maintain some intermediate results in buyerMemory, for efficiency only
     (numBuyers, buyerMemory) = determineBuyers(year, population, cars, sortedCarNames, carName)
+
     if (cars[carName]['year'] == year):               # this is a new car -- all buyers will buy at pre-set price
         numSellers = numBuyers                        # this causes deltaP (calculated momentarily) to be zero
     else:
         # number of sellers is already determined by those who have decided to buy a higher-quality car
         numSellers = cars[carName]['numSellers']
+
     # now adjust price so that
     #    adjusted_buyers = sellers
     #    exp(-delta_P) * buyers = sellers (see notes)
     #    exp(-delta_P) = sellers / buyers
-    deltaP = -math.log(numSellers / numBuyers)     # could be a rise or a fall in price                                     # TODO: * scale
+    #print("***", numSellers, numBuyers)
+    if ((numBuyers > 0) and (numSellers > 0)):
+       deltaP = -utilityScale*math.log(numSellers / numBuyers)    # could be a rise or a fall in price
+    else:
+        deltaP = 0
     # to this point we haven't changed population or cars; now update cars with the new price
     cars[carName]['history'][year]['price'] += deltaP
     # now update population for buyers of this car, and move their lower-quality car to the must-sell list
-    # format of buyerMemory: {incomeLevel: {'cars': [{'model': 'luxury-2020-False', 'numerator': 123, 'denominator': 246}, ...]}}
     for incomeLevel in buyerMemory.keys():
+        #print("***", "Population[", incomeLevel, "]['cars']:\n", population[year][incomeLevel]['cars'].keys())
+        #print("\n***", "buyerMemory[", incomeLevel, "]['cars']:\n", [c['model'] for c in buyerMemory[incomeLevel]['cars']])
         for previouslyOwnedCarRecord in buyerMemory[incomeLevel]['cars']:
+            # format of buyerMemory: {incomeLevel: {'cars': [{'model': 'luxury-2020-False', 'numerator': 123, 'denominator': 246}, ...]}}
             previousModelName = previouslyOwnedCarRecord['model']
-            numerator = previouslyOwnedCarRecord['numerator'] * math.exp(deltaP)       # adjust buy probability by new price    # TODO: scale
+            numerator = previouslyOwnedCarRecord['numerator'] * scaledExp(deltaP)       # adjust buy probability by new price
             denominator = previouslyOwnedCarRecord['denominator']
-            tradeProbability = numerator / denominator                                                              # TODO: scale
+            tradeProbability = numerator / denominator
+            #print("\n\n***", previouslyOwnedCarRecord, population[year][incomeLevel]['cars'].keys())
             numToTrade = population[year][incomeLevel]['cars'][previousModelName]['fraction'] * tradeProbability
-            population[year][incomeLevel]['cars'][previousModelName]['fraction'] -= numToTrade  # number not traded
+            print("**B**", deltaP, population[year][incomeLevel]['cars'][previousModelName]['fraction'], numToTrade, numerator, denominator)
+            population[year][incomeLevel]['cars'][previousModelName]['fraction'] -= numToTrade  # leaving number not traded
             if (carName not in population[year][incomeLevel]['cars']):
-                population[year][incomeLevel]['cars'][carName] = {'fraction: 0'}
+                population[year][incomeLevel]['cars'][carName] = {'fraction': 0}
             population[year][incomeLevel]['cars'][carName]['fraction'] += numToTrade
             cars[previousModelName]['numSellers'] += numToTrade
     return (population, cars)
@@ -184,9 +206,14 @@ def determinePrices(population, cars):
     # Create a field in cars to keep track of number that must be sold because owner has already decided to buy a higher-quality car
     for car in cars.values(): car['numSellers'] = 0 
 
-    # Process one car at a time in quality-order, determining price so # sellers = # buyers, and number of sales at that price.
+    # Process one car at a time in quality-order, determining price (so # sellers = # buyers), and number of sales at that price.
     #    Except for new cars, #sellers is already set, as number of people who own this car who have already committed to buying 
     #    a higher-quality car
     sortedCarNames = carsSortedByQuality(cars, thisYear)    # this function runs after cars has been updated for this year
     for carName in sortedCarNames:
         (population, cars) = determinePriceAndBuyers(thisYear, population, cars, sortedCarNames, carName)
+
+    return population, cars
+
+if __name__ == "__main__":
+    import test_model

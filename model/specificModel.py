@@ -60,7 +60,7 @@ def initializePopulation(cars, year):
         }
     }
 
-    allModels = carsSortedByQuality(cars, year)
+    allModels = carsSortedByQuality(cars, year, reverse=False)   # lowest quality cars come frist
 
     # distribute the lowest-quality models to the lowest income demographic groups
     modelShare = 1.0 / len(allModels)           # e.g. if there are 20 models, 5% of population has each model
@@ -81,3 +81,6 @@ def initializePopulation(cars, year):
                 populationRemaining = 0
 
     return populationThisYear
+
+if __name__ == "__main__":
+    import test_model
