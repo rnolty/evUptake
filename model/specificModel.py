@@ -1,6 +1,6 @@
 import functools
 
-from genericModel import carsSortedByQuality
+from model.genericModel import carsSortedByQuality
 
 globalParameters = {}    # this will be replaced by whoever calls us
 

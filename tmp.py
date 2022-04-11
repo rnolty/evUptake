@@ -1,6 +1,11 @@
-import time
-#from analysis.plotUtilityFunctions import plotUtilityFunctions
+import sys
+print(sys.path)
 
-#plotUtilityFunctions()
+import model.test_model
 
-import analysis.plotPriceByIncomeGroup
+# import time
+# #from analysis.plotUtilityFunctions import plotUtilityFunctions
+
+# #plotUtilityFunctions()
+
+# import analysis.plotPriceByIncomeGroup

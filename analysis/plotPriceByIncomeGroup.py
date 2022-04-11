@@ -1,5 +1,6 @@
 from matplotlib import pyplot as plt
-from model.test_model import globalParameters, population, cars
+#from model.test_model import globalParameters, population, cars
+from testQQQ.runTenYears import population, cars
 
 year = sorted(population.keys())[-1]
 

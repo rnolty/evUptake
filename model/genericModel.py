@@ -105,6 +105,16 @@ def initializeYear(population, cars):
 
     return population, cars
 
+
+
+
+
+debugCarName = "luxury-2022-False"
+
+
+
+
+
 # how many owners of lower-quality cars would buy this car if the price were at its initial value?  Later the price, and the number
 #    of buyers, will be adjusted
 def determineBuyers(year, population, cars, sortedCarNames, carName):
@@ -116,9 +126,10 @@ def determineBuyers(year, population, cars, sortedCarNames, carName):
     buyerMemory = {}                 # for efficiency only - remember some intermediate results and return them
     numBought = 0
     for (incomeLevel, peopleGroup) in population[year].items():
-        # if the people group has no utility for a car this expensive (or this cheap), skip them
         utilityFunction = [thing['utilityFunction'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
-        scaledExp = [thing['scaledExp'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
+        utilityScale = globalParameters['utilityScale'] * cars[carName]['history'][year]['quality']
+        scaledExp = scaledExpCurried(utilityScale)    # scaledExp(x) = exp(x/scale)
+        # if the people group has no utility for a car this expensive (or this cheap), skip them
         if (utilityFunction(qualityThisCar) == 0): continue
 
         for otherCarName in lowerQualityCarNames:
@@ -140,10 +151,13 @@ def determineBuyers(year, population, cars, sortedCarNames, carName):
             # now numerator/denominator is probability owner of thirdCarName chose to buy carName
             #print("***", peopleGroup)
             numBought += peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator
-
-            tmp = peopleGroup['cars'][otherCarName]['fraction']
-            print("**A**", priceThisCar, tmp, tmp*numerator/denominator, numerator, denominator)
-
+            # if (carName == debugCarName):
+            #     print("   ***", "Owners of", otherCarName, ": ", peopleGroup['cars'][otherCarName]['fraction'], "tentatively buy", 
+            #        peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator)
+            #     print("      ", numerator, denominator)
+            # if (otherCarName == debugCarName):
+            #     print("***","Owners of", debugCarName, ": ", peopleGroup['cars'][otherCarName]['fraction'], "tentatively sell", 
+            #        peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator)
             if (incomeLevel not in buyerMemory): buyerMemory[incomeLevel] = {'cars': []}
             buyerMemory[incomeLevel]['cars'].append( {'model': otherCarName, 'numerator': numerator, 'denominator': denominator} )
         # end of loop over cars owned by this peopleGroup
@@ -161,6 +175,8 @@ def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
     # for all owners of a lower-quality car, decide if they choose to buy this car (at its current price)
     # we maintain some intermediate results in buyerMemory, for efficiency only
     (numBuyers, buyerMemory) = determineBuyers(year, population, cars, sortedCarNames, carName)
+    # if (carName == debugCarName):
+    #     print("\n\n*** buyerMemory", buyerMemory,"\n\n")
 
     if (cars[carName]['year'] == year):               # this is a new car -- all buyers will buy at pre-set price
         numSellers = numBuyers                        # this causes deltaP (calculated momentarily) to be zero
@@ -173,30 +189,53 @@ def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
     #    exp(-delta_P) * buyers = sellers (see notes)
     #    exp(-delta_P) = sellers / buyers
     #print("***", numSellers, numBuyers)
+    priceThisCar = cars[carName]['history'][year]['price']
     if ((numBuyers > 0) and (numSellers > 0)):
-       deltaP = -utilityScale*math.log(numSellers / numBuyers)    # could be a rise or a fall in price
+        deltaP = -utilityScale*math.log(numSellers / numBuyers)    # could be a rise or a fall in price
+        if (deltaP < -priceThisCar):                               # don't let price drop below zero
+            deltaP = -priceThisCar
+    elif (numBuyers == 0):
+        deltaP = -priceThisCar                                     # if no buyers, price drops to zero
     else:
-        deltaP = 0
+        deltaP = 0                                                 # if no sellers, price is irrelevant
+    # if (carName == debugCarName):
+    #     print("***", "Saved numSellers for", carName, "is", numSellers, "tentative buyers is", numBuyers, "deltaP is", deltaP)
     # to this point we haven't changed population or cars; now update cars with the new price
     cars[carName]['history'][year]['price'] += deltaP
     # now update population for buyers of this car, and move their lower-quality car to the must-sell list
+    totalBuy = 0
     for incomeLevel in buyerMemory.keys():
         #print("***", "Population[", incomeLevel, "]['cars']:\n", population[year][incomeLevel]['cars'].keys())
         #print("\n***", "buyerMemory[", incomeLevel, "]['cars']:\n", [c['model'] for c in buyerMemory[incomeLevel]['cars']])
         for previouslyOwnedCarRecord in buyerMemory[incomeLevel]['cars']:
             # format of buyerMemory: {incomeLevel: {'cars': [{'model': 'luxury-2020-False', 'numerator': 123, 'denominator': 246}, ...]}}
             previousModelName = previouslyOwnedCarRecord['model']
-            numerator = previouslyOwnedCarRecord['numerator'] * scaledExp(deltaP)       # adjust buy probability by new price
+            numerator = previouslyOwnedCarRecord['numerator'] * scaledExp(-deltaP)       # adjust buy probability by new price
             denominator = previouslyOwnedCarRecord['denominator']
             tradeProbability = numerator / denominator
-            #print("\n\n***", previouslyOwnedCarRecord, population[year][incomeLevel]['cars'].keys())
+            if (tradeProbability > 1):
+                # for some low-valued cars, there are more sellers than even possible buyers
+                tradeProbability = 1            # this will leave a few cars being sold but not bought, i.e. retired
             numToTrade = population[year][incomeLevel]['cars'][previousModelName]['fraction'] * tradeProbability
-            print("**B**", deltaP, population[year][incomeLevel]['cars'][previousModelName]['fraction'], numToTrade, numerator, denominator)
+            # if (previousModelName == debugCarName):
+            #     print("***", "Owners of", previousModelName, ": ", population[year][incomeLevel]['cars'][previousModelName]['fraction'],
+            #        "finally sell", numToTrade)
+            #     print("   ", numerator, denominator)
             population[year][incomeLevel]['cars'][previousModelName]['fraction'] -= numToTrade  # leaving number not traded
+            # if (previousModelName == debugCarName):
+            #     print("***", "Leaving", population[year][incomeLevel]['cars'][previousModelName]['fraction'])
             if (carName not in population[year][incomeLevel]['cars']):
                 population[year][incomeLevel]['cars'][carName] = {'fraction': 0}
             population[year][incomeLevel]['cars'][carName]['fraction'] += numToTrade
+            # if (carName == debugCarName):
+            #     print("***", "Previous owners of", previousModelName, "now own", numToTrade, "of", carName)
+            #     print("   ", numerator, denominator)
             cars[previousModelName]['numSellers'] += numToTrade
+            totalBuy += numToTrade
+    if (abs(totalBuy - numSellers) > 0.005):
+        print("!!! Discrepancy for", carName, "sellers:", numSellers, "adjusted buyers:", totalBuy, "deltaP:", deltaP)
+    # if (carName == debugCarName):
+    #     print("***", "final buyers of", carName, ":", totalBuy)
     return (population, cars)
 
 
