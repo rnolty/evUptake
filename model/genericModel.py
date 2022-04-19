@@ -109,26 +109,51 @@ def initializeYear(population, cars):
 
 
 
-debugCarName = "luxury-2022-False"
+debugCarName = "luxury-2020-False"
+debugIncomeLevel = 100000
 
 
+def operatingCosts(cars, carName, incomeLevel, thisYear):
+    model = cars[carName]['model']
+    isEV = cars[carName]['EV']
+    # at some point I may try age-dependent operating costs, but not yet
+    #modelYear = cars[carName]['year']
+    #age = thisYear - modelYear
 
+    # consider 5 years of operating costs in deciding what to buy
+    operatingCosts = 0
 
+    for year in range(thisYear, thisYear+5):
+        discount = pow(1 - globalParameters['peopleGroups'][incomeLevel]['discountRate'], year - thisYear)
+        costThisYear = 0
+
+        if (isEV):
+            costThisYear += 10000 / globalParameters['carTypes'][model]['mpkwh'] * globalParameters['electricityCost'][year]
+            costThisYear += globalParameters['carTypes'][model]['evRepairs']
+        else:
+            costThisYear += 10000 / globalParameters['carTypes'][model]['mpg'] * globalParameters['gasCost'][year]
+            costThisYear += globalParameters['carTypes'][model]['gasRepairs']
+
+        operatingCosts += discount * costThisYear
+    return operatingCosts
 
 # how many owners of lower-quality cars would buy this car if the price were at its initial value?  Later the price, and the number
 #    of buyers, will be adjusted
 def determineBuyers(year, population, cars, sortedCarNames, carName):
     priceThisCar = cars[carName]['history'][year]['price']
     qualityThisCar = cars[carName]['history'][year]['quality']
+    # cannot calculate operating costs yet because discount rates depend on income level
     lowerQualityCarNames = sortedCarNames[sortedCarNames.index(carName)+1:]
     transactionCost = globalParameters['transactionCost']    # may later try making it proportional to prices
+    print("***", carName)
 
     buyerMemory = {}                 # for efficiency only - remember some intermediate results and return them
     numBought = 0
     for (incomeLevel, peopleGroup) in population[year].items():
-        utilityFunction = [thing['utilityFunction'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
-        utilityScale = globalParameters['utilityScale'] * cars[carName]['history'][year]['quality']
-        scaledExp = scaledExpCurried(utilityScale)    # scaledExp(x) = exp(x/scale)
+        operatingCostsThisCar = operatingCosts(cars, carName, incomeLevel, year)
+        utilityFunction = globalParameters['peopleGroups'][incomeLevel]['utilityFunction']    #[thing['utilityFunction'] for thing in globalParameters['peopleGroups'] if thing['income'] == incomeLevel][0]
+        #utilityScale = globalParameters['utilityScale'] * cars[carName]['history'][year]['quality']
+        #scaledExp = scaledExpCurried(utilityScale)    # scaledExp(x) = exp(x/scale)
         # if the people group has no utility for a car this expensive (or this cheap), skip them
         if (utilityFunction(qualityThisCar) == 0): continue
 
@@ -136,21 +161,42 @@ def determineBuyers(year, population, cars, sortedCarNames, carName):
             if (otherCarName not in peopleGroup['cars'].keys()): continue
 
             priceOtherCar = cars[otherCarName]['history'][year]['price']
+            utilityScale = priceOtherCar * globalParameters['utilityScale']
+            if (utilityScale <= 500):
+                # low-priced carrs leads to an unrealistically small scale; and if price is zero, scale is zero, and
+                #    we have to avoid divide-by-zero
+                utilityScale = 500
+            scaledExp = scaledExpCurried(utilityScale)    # scaledExp(x) = exp(x/scale)
             qualityOtherCar = cars[otherCarName]['history'][year]['quality']
-            numerator = scaledExp(utilityFunction(qualityThisCar) - priceThisCar + priceOtherCar - transactionCost) # TODO: operating costs
+            operatingCostsOtherCar = operatingCosts(cars, otherCarName, incomeLevel, year)
+            numerator = scaledExp(utilityFunction(qualityThisCar) - priceThisCar + priceOtherCar - operatingCostsThisCar + 
+                                  operatingCostsOtherCar - transactionCost)
             if (utilityFunction(qualityOtherCar) > 0):
-                denominator = scaledExp(utilityFunction(qualityOtherCar))   # probability of keeping other car
+                denominator = scaledExp(utilityFunction(qualityOtherCar)- operatingCostsOtherCar)   # probability of keeping other car
             else:
                 denominator = 0                                             # other car has no utility, no chance of keeping it
-            # now add to denominator probability of buying any other higher-quality car (including carName)
-            higherQualityCarNames = sortedCarNames[0:sortedCarNames.index(otherCarName)]
+            if (otherCarName == debugCarName and incomeLevel == debugIncomeLevel):
+                print("   ***", "Initial denominator =", denominator, "; Initial fraction", peopleGroup['cars'][otherCarName]['fraction'],
+                      "; numerator car", carName)
+            # now add to denominator probability of buying any other higher-quality car ((up to and including carName) -- if this
+            #    buyer has positive utility for any car of higher quality than carName, that transaction has already been calculated
+            higherQualityCarNames = sortedCarNames[sortedCarNames.index(carName):sortedCarNames.index(otherCarName)]
             for thirdCarName in higherQualityCarNames:
                 priceThirdCar = cars[thirdCarName]['history'][year]['price']
                 qualityThirdCar = cars[thirdCarName]['history'][year]['quality']
-                denominator += scaledExp(utilityFunction(qualityThirdCar) - priceThirdCar + priceOtherCar - transactionCost)
+                operatingCostsThirdCar = operatingCosts(cars, thirdCarName, incomeLevel, year)
+                denominator += scaledExp(utilityFunction(qualityThirdCar) - priceThirdCar + priceOtherCar - operatingCostsThirdCar +
+                                         operatingCostsOtherCar - transactionCost)
+                if (otherCarName == debugCarName and incomeLevel == debugIncomeLevel):
+                    print("      ***", "Denominator includes", thirdCarName)
             # now numerator/denominator is probability owner of thirdCarName chose to buy carName
             #print("***", peopleGroup)
-            numBought += peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator
+            assert(numerator <= denominator)
+            if (otherCarName == debugCarName and incomeLevel == debugIncomeLevel):
+                print(   "***","Final numerator and denominator:", numerator, denominator)
+
+            numBuyer = peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator
+            numBought += numBuyer
             # if (carName == debugCarName):
             #     print("   ***", "Owners of", otherCarName, ": ", peopleGroup['cars'][otherCarName]['fraction'], "tentatively buy", 
             #        peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator)
@@ -159,7 +205,8 @@ def determineBuyers(year, population, cars, sortedCarNames, carName):
             #     print("***","Owners of", debugCarName, ": ", peopleGroup['cars'][otherCarName]['fraction'], "tentatively sell", 
             #        peopleGroup['cars'][otherCarName]['fraction'] * numerator / denominator)
             if (incomeLevel not in buyerMemory): buyerMemory[incomeLevel] = {'cars': []}
-            buyerMemory[incomeLevel]['cars'].append( {'model': otherCarName, 'numerator': numerator, 'denominator': denominator} )
+            buyerMemory[incomeLevel]['cars'].append( {'model': otherCarName, 'numerator': numerator, 'denominator': denominator,
+                                                      'utilityFunction': utilityFunction, 'utilityScale': utilityScale, 'numBuyer': numBuyer} )
         # end of loop over cars owned by this peopleGroup
     # end of loop over people groups
     return numBought, buyerMemory
@@ -191,6 +238,15 @@ def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
     #print("***", numSellers, numBuyers)
     priceThisCar = cars[carName]['history'][year]['price']
     if ((numBuyers > 0) and (numSellers > 0)):
+        # approximation: compute a weighted average for utilityScale; use that to turn a fraction into a price
+        numerator = 0
+        denominator = 0
+        for peopleGroup in buyerMemory.values():
+            for car in peopleGroup['cars']:
+                numerator += car['numBuyer'] / car['utilityScale']
+                denominator += car['numBuyer']
+        # num/denom = weighted avg of 1/xi; denom/num = 1/mean[1/xi]
+        utilityScale = denominator / numerator
         deltaP = -utilityScale*math.log(numSellers / numBuyers)    # could be a rise or a fall in price
         if (deltaP < -priceThisCar):                               # don't let price drop below zero
             deltaP = -priceThisCar
@@ -213,15 +269,32 @@ def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
             numerator = previouslyOwnedCarRecord['numerator'] * scaledExp(-deltaP)       # adjust buy probability by new price
             denominator = previouslyOwnedCarRecord['denominator']
             tradeProbability = numerator / denominator
+            if (previousModelName == debugCarName and incomeLevel == debugIncomeLevel):
+                print("***","final numerator and trade probability", numerator, tradeProbability)
             if (tradeProbability > 1):
                 # for some low-valued cars, there are more sellers than even possible buyers
                 tradeProbability = 1            # this will leave a few cars being sold but not bought, i.e. retired
+            # special case -- if previously-owned car has zero utility for current owner, this procedure sells approximately all
+            #    their cars -- but not exactly, because some of the prices in the denominator change midstream.  So if carName is
+            #    the last chance (lowest-quality car with positive utility for this incomeLevel), trade 100% of remaining stock
+            utilityFunction = previouslyOwnedCarRecord['utilityFunction']           # utility function for this income level
+
+            if (utilityFunction(cars[previousModelName]['history'][year]['quality']) == 0):
+                # we know carName has positive utility, or this income level would not show up in buyer memory.  Now see if there is any
+                #    lower-quality car that still has utility
+                carsToTest = sortedCarNames[sortedCarNames.index(carName)+1:sortedCarNames.index(previousModelName)]
+                if (not any([utilityFunction(cars[testCarName]['history'][year]['quality']) for testCarName in carsToTest])):
+                    print("!!! Increasing trade probability of useless car from", tradeProbability,"to 1;", year, incomeLevel, previousModelName)
+                    tradeProbability = 1
             numToTrade = population[year][incomeLevel]['cars'][previousModelName]['fraction'] * tradeProbability
             # if (previousModelName == debugCarName):
             #     print("***", "Owners of", previousModelName, ": ", population[year][incomeLevel]['cars'][previousModelName]['fraction'],
             #        "finally sell", numToTrade)
             #     print("   ", numerator, denominator)
-            population[year][incomeLevel]['cars'][previousModelName]['fraction'] -= numToTrade  # leaving number not traded
+            if (tradeProbability > 0.999):
+                del(population[year][incomeLevel]['cars'][previousModelName])      # all cars sold, delete from data structure
+            else:
+                population[year][incomeLevel]['cars'][previousModelName]['fraction'] -= numToTrade  # leaving number not traded
             # if (previousModelName == debugCarName):
             #     print("***", "Leaving", population[year][incomeLevel]['cars'][previousModelName]['fraction'])
             if (carName not in population[year][incomeLevel]['cars']):
@@ -238,7 +311,7 @@ def determinePriceAndBuyers(year, population, cars, sortedCarNames, carName):
     #     print("***", "final buyers of", carName, ":", totalBuy)
     return (population, cars)
 
-
+# given this year's population and last year's prices, determine this year's prices to balance supply and demand
 def determinePrices(population, cars):
     thisYear = sorted(population.keys())[-1]                # this function runs after population has been updated for this year
 

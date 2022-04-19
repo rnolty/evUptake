@@ -54,9 +54,7 @@ def initializePopulation(cars, year):
     # initialize population for this year with empty car lists
     populationThisYear = {
         year: {
-            peopleGroup['income']: {
-                'fraction': peopleGroup['fraction'], 'cars': {}
-            } for peopleGroup in globalParameters['peopleGroups']
+            incomeLevel: {'fraction': val['fraction'], 'cars': {}} for incomeLevel,val in globalParameters['peopleGroups'].items()
         }
     }
 
@@ -66,8 +64,7 @@ def initializePopulation(cars, year):
     modelShare = 1.0 / len(allModels)           # e.g. if there are 20 models, 5% of population has each model
     currentModel = 0
     modelShareRemaining = modelShare
-    # list of peopleGroups in globalParameters must be ordered by increasing income
-    for incomeLevel in [peopleGroup['income'] for peopleGroup in globalParameters['peopleGroups']]:
+    for incomeLevel in sorted(globalParameters['peopleGroups'].keys()):   #[peopleGroup['income'] for peopleGroup in globalParameters['peopleGroups']]:
         populationRemaining = populationThisYear[year][incomeLevel]['fraction']
         while (populationRemaining > 0.0001):     # don't continue if only roundoff error remains
             if (populationRemaining >= modelShareRemaining):
